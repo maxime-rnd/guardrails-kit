@@ -63,7 +63,45 @@ OPENAI_EMBEDDING_MODEL=nomic-embed-text
 
 ## Use a YAML pipeline
 
-Load the complete example with:
+Here is a small pipeline that does not call a model. Save it as `guardrails.yaml`:
+
+```yaml
+version: 2
+steps:
+  - name: redact_message
+    kind: transform
+    type: pii_redaction
+    phase: input
+    input: input.message
+    output: safe_message
+    params:
+      redact: [email, api_token]
+
+  - name: message_present
+    kind: check
+    type: condition
+    phase: input
+    input: outputs.safe_message
+    params:
+      operator: not_equals
+      value: ""
+```
+
+Load and run it like this:
+
+```python
+from guardrails_kit import Guardrails
+
+guardrails = Guardrails.from_yaml("guardrails.yaml")
+report = guardrails.validate_input({
+    "message": "Contact me at ada@example.com",
+})
+
+print(report.get_output("safe_message", str))
+print(report.step_results["message_present"].status.value)
+```
+
+For a complete example with LLM extraction and embedding similarity, load [`examples/guardrails.yaml`](examples/guardrails.yaml):
 
 ```python
 from guardrails_kit import Guardrails
