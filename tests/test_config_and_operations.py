@@ -108,6 +108,8 @@ def test_from_dict_builds_operations_without_external_services() -> None:
 
     report = guardrails.validate_input({"message": "Contact user@example.com"})
 
-    assert report.checks[0].status is CheckStatus.PASS
-    assert report.transforms[0].status is TransformStatus.SUCCESS
+    assert report.step_results[0].name == "has-text"
+    assert report.step_results[0].status is CheckStatus.PASS
+    assert report.step_results[1].name == "redact"
+    assert report.step_results["redact"].status is TransformStatus.SUCCESS
     assert "user@example.com" not in report.get_output("safe_message", str)

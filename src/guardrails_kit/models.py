@@ -5,9 +5,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import asdict, is_dataclass
 from enum import Enum, StrEnum
-from typing import Any, TypeVar, overload
+from typing import Annotated, Any, Iterator, Literal, TypeVar, overload
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 OutputT = TypeVar("OutputT")
 
@@ -34,6 +34,7 @@ class TransformResult(BaseModel):
     """Execution result for one transform and its named output."""
 
     model_config = ConfigDict(frozen=True)
+    kind: Literal["transform"] = "transform"
     name: str
     transform_type: str
     phase: Phase
@@ -49,6 +50,7 @@ class CheckResult(BaseModel):
     """Check result; the pipeline step supplies its phase."""
 
     model_config = ConfigDict(frozen=True)
+    kind: Literal["check"] = "check"
     name: str
     check_type: str
     phase: Phase | None = None
@@ -58,14 +60,75 @@ class CheckResult(BaseModel):
     duration_ms: float | None = None
 
 
+StepResult = Annotated[
+    TransformResult | CheckResult,
+    Field(discriminator="kind"),
+]
+
+
+class StepResults(BaseModel):
+    """Pipeline step results in execution order, addressable by index or name."""
+
+    model_config = ConfigDict(frozen=True)
+
+    items: tuple[StepResult, ...] = ()
+
+    @model_validator(mode="after")
+    def _names_are_unique(self) -> StepResults:
+        names = [result.name for result in self.items]
+        if len(names) != len(set(names)):
+            raise ValueError("step result names must be unique")
+        return self
+
+    @overload
+    def __getitem__(self, key: int) -> StepResult: ...
+
+    @overload
+    def __getitem__(self, key: str) -> StepResult: ...
+
+    @overload
+    def __getitem__(self, key: slice) -> tuple[StepResult, ...]: ...
+
+    def __getitem__(
+        self, key: int | slice | str
+    ) -> StepResult | tuple[StepResult, ...]:
+        if isinstance(key, str):
+            for result in self.items:
+                if result.name == key:
+                    return result
+            raise KeyError(key)
+        return self.items[key]
+
+    def __iter__(self) -> Iterator[StepResult]:
+        return iter(self.items)
+
+    def __len__(self) -> int:
+        return len(self.items)
+
+
 class GuardrailsReport(BaseModel):
-    """Typed transform outputs and check verdicts for one pipeline phase."""
+    """Ordered step results and named transform outputs for one pipeline phase."""
 
     model_config = ConfigDict(frozen=True)
     phase: Phase
     outputs: dict[str, Any] = Field(default_factory=dict)
-    transforms: tuple[TransformResult, ...] = ()
-    checks: tuple[CheckResult, ...] = ()
+    step_results: StepResults = Field(default_factory=StepResults)
+
+    @property
+    def transforms(self) -> tuple[TransformResult, ...]:
+        """Transform results in pipeline order, for kind-specific access."""
+        return tuple(
+            result
+            for result in self.step_results
+            if isinstance(result, TransformResult)
+        )
+
+    @property
+    def checks(self) -> tuple[CheckResult, ...]:
+        """Check results in pipeline order, for kind-specific access."""
+        return tuple(
+            result for result in self.step_results if isinstance(result, CheckResult)
+        )
 
     @overload
     def get_output(self, name: str) -> Any: ...
@@ -91,25 +154,41 @@ class GuardrailsReport(BaseModel):
 
     @property
     def has_failures(self) -> bool:
-        return any(item.status is CheckStatus.FAIL for item in self.checks)
+        return any(
+            isinstance(item, CheckResult) and item.status is CheckStatus.FAIL
+            for item in self.step_results
+        )
 
     @property
     def has_errors(self) -> bool:
-        return any(item.status is CheckStatus.ERROR for item in self.checks) or any(
-            item.status is TransformStatus.ERROR for item in self.transforms
+        return any(
+            (isinstance(item, CheckResult) and item.status is CheckStatus.ERROR)
+            or (
+                isinstance(item, TransformResult)
+                and item.status is TransformStatus.ERROR
+            )
+            for item in self.step_results
         )
 
     @property
     def failures(self) -> tuple[CheckResult, ...]:
-        return tuple(item for item in self.checks if item.status is CheckStatus.FAIL)
+        return tuple(
+            item
+            for item in self.step_results
+            if isinstance(item, CheckResult) and item.status is CheckStatus.FAIL
+        )
 
     @property
     def errors(self) -> tuple[TransformResult | CheckResult, ...]:
-        transforms = tuple(
-            item for item in self.transforms if item.status is TransformStatus.ERROR
+        return tuple(
+            item
+            for item in self.step_results
+            if (isinstance(item, CheckResult) and item.status is CheckStatus.ERROR)
+            or (
+                isinstance(item, TransformResult)
+                and item.status is TransformStatus.ERROR
+            )
         )
-        checks = tuple(item for item in self.checks if item.status is CheckStatus.ERROR)
-        return transforms + checks
 
     def to_dict(self) -> dict[str, Any]:
         def jsonable(value: Any) -> Any:
@@ -131,10 +210,7 @@ class GuardrailsReport(BaseModel):
             "has_failures": self.has_failures,
             "has_errors": self.has_errors,
             "outputs": jsonable(self.outputs),
-            "transforms": [
-                jsonable(item.model_dump(mode="python")) for item in self.transforms
-            ],
-            "checks": [
-                jsonable(item.model_dump(mode="python")) for item in self.checks
+            "step_results": [
+                jsonable(item.model_dump(mode="python")) for item in self.step_results
             ],
         }

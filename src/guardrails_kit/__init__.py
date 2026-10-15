@@ -7,6 +7,7 @@ from .models import (
     CheckStatus,
     GuardrailsReport,
     Phase,
+    StepResults,
     TransformResult,
     TransformStatus,
 )
@@ -30,6 +31,7 @@ __all__ = [
     "PIIRedactor",
     "Phase",
     "Step",
+    "StepResults",
     "TransformStep",
     "TransformOperation",
     "TransformResult",

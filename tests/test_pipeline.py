@@ -65,9 +65,13 @@ def test_pipeline_runs_transforms_before_checks_and_routes_outputs() -> None:
 
     assert report.passed
     assert report.get_output("normalized", str) == "HELLO"
-    assert report.transforms[0].status is TransformStatus.SUCCESS
-    assert report.checks[0].status is CheckStatus.PASS
-    assert report.checks[0].phase.value == "input"
+    assert report.step_results[0].name == "uppercase"
+    assert report.step_results[0].kind == "transform"
+    assert report.step_results[0].status is TransformStatus.SUCCESS
+    assert report.step_results[1].name == "matches"
+    assert report.step_results[1].kind == "check"
+    assert report.step_results["matches"].status is CheckStatus.PASS
+    assert report.step_results[1].phase.value == "input"
 
 
 def test_pipeline_records_business_failure() -> None:
@@ -75,7 +79,7 @@ def test_pipeline_records_business_failure() -> None:
 
     assert not report.passed
     assert report.has_failures
-    assert report.checks[0].status is CheckStatus.FAIL
+    assert report.step_results["matches"].status is CheckStatus.FAIL
 
 
 def test_pipeline_converts_operation_exceptions_to_error_results() -> None:
@@ -93,8 +97,8 @@ def test_pipeline_converts_operation_exceptions_to_error_results() -> None:
     report = pipeline.validate_input("value")
 
     assert report.has_errors
-    assert report.transforms[0].status is TransformStatus.ERROR
-    assert report.transforms[0].details["exception_type"] == "RuntimeError"
+    assert report.step_results["broken"].status is TransformStatus.ERROR
+    assert report.step_results[0].details["exception_type"] == "RuntimeError"
 
 
 def test_async_pipeline_uses_same_contracts() -> None:

@@ -27,12 +27,12 @@ def main() -> None:
     print(
         f"passed={report.passed} failures={report.has_failures} errors={report.has_errors}"
     )
-    print("\nTransforms:")
-    for result in report.transforms:
-        print(f"[{result.status.value}] {result.name}: {result.message}")
-    print("\nChecks:")
-    for result in report.checks:
-        print(f"[{result.status.value}] {result.name}: {result.message}")
+    print("\nSteps (in execution order):")
+    for index, result in enumerate(report.step_results):
+        print(
+            f"[{index}] [{result.kind}] [{result.status.value}] "
+            f"{result.name}: {result.message}"
+        )
     if "safe_message" in report.outputs:
         print("\nSanitized message:", report.get_output("safe_message", str))
     if "classification" in report.outputs:

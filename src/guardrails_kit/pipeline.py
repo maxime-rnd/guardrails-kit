@@ -21,6 +21,7 @@ from .models import (
     CheckResult,
     GuardrailsReport,
     Phase,
+    StepResults,
     TransformResult,
 )
 from .steps import CheckStep, Step, TransformStep, step_config
@@ -142,27 +143,20 @@ class Guardrails:
     def _collect(
         result: TransformResult | CheckResult,
         outputs: dict[str, Any],
-        transforms: list[TransformResult],
-        checks: list[CheckResult],
     ) -> None:
         if isinstance(result, TransformResult):
             outputs[result.output_name] = result.value
-            transforms.append(result)
-        else:
-            checks.append(result)
 
     @staticmethod
     def _report(
         phase: Phase,
         outputs: dict[str, Any],
-        transforms: list[TransformResult],
-        checks: list[CheckResult],
+        step_results: list[TransformResult | CheckResult],
     ) -> GuardrailsReport:
         return GuardrailsReport(
             phase=phase,
             outputs=outputs,
-            transforms=tuple(transforms),
-            checks=tuple(checks),
+            step_results=StepResults(items=tuple(step_results)),
         )
 
     def _run_step(
@@ -186,16 +180,16 @@ class Guardrails:
     def run(self, phase: Phase | str, data: Any) -> GuardrailsReport:
         selected_phase = Phase(phase)
         outputs: dict[str, Any] = {}
-        transforms: list[TransformResult] = []
-        checks: list[CheckResult] = []
+        step_results: list[TransformResult | CheckResult] = []
 
         for config, step in self._steps:
             if not config.enabled or config.phase is not selected_phase:
                 continue
             result = self._run_step(config, step, data, outputs)
-            self._collect(result, outputs, transforms, checks)
+            self._collect(result, outputs)
+            step_results.append(result)
 
-        return self._report(selected_phase, outputs, transforms, checks)
+        return self._report(selected_phase, outputs, step_results)
 
     def validate_input(self, data: Any) -> GuardrailsReport:
         return self.run(Phase.INPUT, data)
@@ -206,8 +200,7 @@ class Guardrails:
     async def arun(self, phase: Phase | str, data: Any) -> GuardrailsReport:
         selected_phase = Phase(phase)
         outputs: dict[str, Any] = {}
-        transforms: list[TransformResult] = []
-        checks: list[CheckResult] = []
+        step_results: list[TransformResult | CheckResult] = []
 
         for config, step in self._steps:
             if not config.enabled or config.phase is not selected_phase:
@@ -222,9 +215,10 @@ class Guardrails:
                 )
                 elapsed_ms = (time.perf_counter() - started) * 1000
                 result = step.error_result(exc, elapsed_ms)
-            self._collect(result, outputs, transforms, checks)
+            self._collect(result, outputs)
+            step_results.append(result)
 
-        return self._report(selected_phase, outputs, transforms, checks)
+        return self._report(selected_phase, outputs, step_results)
 
     async def avalidate_input(self, data: Any) -> GuardrailsReport:
         return await self.arun(Phase.INPUT, data)

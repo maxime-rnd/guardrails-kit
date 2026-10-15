@@ -80,8 +80,10 @@ report = guardrails.validate_input({
 
 print(report.get_output("safe_message", str))
 print(report.get_output("classification"))
-for check in report.checks:
-    print(check.status.value, check.name, check.message)
+for result in report.step_results:
+    print(result.status.value, result.name, result.message)
+print(report.step_results[0])
+print(report.step_results["customer_matches_schema"])
 ```
 
 The YAML file uses `version: 2` and an ordered `steps` list. Each step has a `kind` (`transform` or `check`), a registered `type`, a `phase`, an `input` reference, and optional `params`. A transform also declares an `output` name.
@@ -107,7 +109,7 @@ See the `params` for each operation in the example YAML and the corresponding cl
 
 ## Read the report
 
-`validate_input()` and `validate_output()` return a `GuardrailsReport` for that phase. `report.outputs` maps output names to their original typed Python values; `report.get_output(name, Type)` optionally checks an output's type. `report.transforms` contains transform execution results and `report.checks` contains check verdicts. Use `report.to_dict()` when you need a serializable representation.
+`validate_input()` and `validate_output()` return a `GuardrailsReport` for that phase. `report.step_results` contains every executed step result in pipeline order. Retrieve an item by index (`report.step_results[0]`) or by its configured step name (`report.step_results["customer_matches_schema"]`), or iterate over the collection. Each result has a `kind` field with the value `"transform"` or `"check"`, so callers can distinguish the result type without inspecting its class. A missing name raises `KeyError`. `report.outputs` maps output names to their original typed Python values; `report.get_output(name, Type)` optionally checks an output's type. For kind-specific access, `report.transforms` and `report.checks` are derived filtered views. Use `report.to_dict()` when you need a serializable representation; its `step_results` array keeps execution order and includes `kind`.
 
 Check statuses have distinct meanings:
 
@@ -177,3 +179,98 @@ python -m pytest
 ## Current limitation
 
 PII redaction currently uses regex patterns. It is useful as a simple local transform, but name detection is heuristic and it can miss formats or redact false positives. The name detector has a TODO for replacement with a model-based approach.
+
+## End-to-end Python example
+
+This example combines two transforms and two checks. It needs no model or YAML file, and shows how the ordered results correspond to the configured steps:
+
+```python
+from guardrails_kit import (
+    CheckOperation,
+    CheckResult,
+    CheckStatus,
+    CheckStep,
+    Guardrails,
+    PIIRedactor,
+    TransformOperation,
+    TransformStep,
+)
+
+
+class NormalizeWhitespace(TransformOperation):
+    type_name = "normalize_whitespace"
+
+    def transform(self, text: str) -> str:
+        return " ".join(text.split())
+
+
+class MessagePresent(CheckOperation):
+    type_name = "message_present"
+
+    def __init__(self):
+        super().__init__("message_present")
+
+    def check(self, text: str) -> CheckResult:
+        if text.strip():
+            return self._result(CheckStatus.PASS, "Message is present.")
+        return self._result(CheckStatus.FAIL, "Message is empty.")
+
+
+class WithinCharacterLimit(CheckOperation):
+    type_name = "within_character_limit"
+
+    def __init__(self, limit: int):
+        super().__init__("within_character_limit")
+        self.limit = limit
+
+    def check(self, text: str) -> CheckResult:
+        if len(text) <= self.limit:
+            return self._result(
+                CheckStatus.PASS,
+                f"Message has {len(text)} characters (limit: {self.limit}).",
+            )
+        return self._result(
+            CheckStatus.FAIL,
+            f"Message has {len(text)} characters; limit is {self.limit}.",
+        )
+
+
+guardrails = Guardrails([
+    TransformStep(
+        name="redact_personal_data",
+        source="input.message",
+        target="safe_message",
+        using=PIIRedactor(redact=["email", "person_name"]),
+    ),
+    TransformStep(
+        name="normalize_message",
+        source="outputs.safe_message",
+        target="clean_message",
+        using=NormalizeWhitespace(),
+    ),
+    CheckStep(
+        name="message_present",
+        source="outputs.clean_message",
+        using=MessagePresent(),
+    ),
+    CheckStep(
+        name="message_within_limit",
+        source="outputs.clean_message",
+        using=WithinCharacterLimit(limit=180),
+    ),
+])
+
+report = guardrails.validate_input({
+    "message": "My name is Ada Lovelace. Email me at ada@example.com.   "
+               "I was charged twice for my subscription."
+})
+
+for index, result in enumerate(report.step_results):
+    print(index, result.kind, result.name, result.status.value, result.message)
+
+clean_message = report.get_output("clean_message", str)
+length_check = report.step_results["message_within_limit"]
+print("Clean message:", clean_message)
+print("Length check passed:", length_check.status is CheckStatus.PASS)
+print("Whole pipeline passed:", report.passed)
+```
