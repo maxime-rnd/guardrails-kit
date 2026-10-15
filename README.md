@@ -1,136 +1,179 @@
 # Guardrails Kit
 
-Une petite bibliothèque Python pour transformer et vérifier des données dans un ordre explicite. Un transform produit une sortie nommée, qu’il s’agisse de texte nettoyé ou d’une structure extraite. Un check retourne `pass`, `fail`, `error` ou `skipped`.
+Guardrails Kit is a small Python library for building ordered data pipelines. A pipeline can **transform** input (for example, redact text or extract a typed object) and **check** values (for example, validate a schema or compare text with examples).
 
-## Installation et configuration
+The package does not require a particular application schema. Pass a dictionary, Pydantic model, dataclass, string, or another value your operations understand.
+
+## Install
+
+From a checkout of this repository:
 
 ```bash
-pip install -e .
+python -m pip install -e .
 ```
 
-Le client OpenAI lit automatiquement `.env` à la création d'une configuration qui utilise un modèle. Pour Ollama compatible OpenAI :
+To install the development dependency used by the test suite:
+
+```bash
+python -m pip install -e ".[dev]"
+```
+
+Python 3.11 or newer is required.
+
+## Quick start: Python API, no model required
+
+This example redacts common personal information from text and returns the result under a named output:
+
+```python
+from guardrails_kit import Guardrails, TransformStep, PIIRedactor
+
+guardrails = Guardrails([
+    TransformStep(
+        name="redact_message",
+        source="input.message",
+        target="safe_message",
+        using=PIIRedactor(),
+    ),
+])
+
+report = guardrails.validate_input({
+    "message": "Email Ada at ada@example.com",
+})
+
+print(report.get_output("safe_message"))
+# Email Ada at [EMAIL]
+```
+
+Transforms produce named values that later steps can use. Checks evaluate a value without replacing it. Both kinds of step run in the order supplied to `Guardrails`.
+
+## Configure an OpenAI-compatible model
+
+Copy [`.env.example`](.env.example) to `.env` and adjust the settings. The library loads the nearest `.env` file by searching upward from the current working directory when it creates an OpenAI client. Variables already set in the process environment take precedence.
+
+The example file is set up for a local Ollama server. Ensure Ollama is running and the configured chat and embedding models are available. For the OpenAI API, comment out `OPENAI_BASE_URL` and set `OPENAI_API_KEY` to your key.
 
 ```dotenv
 OPENAI_BASE_URL=http://localhost:11434/v1
 OPENAI_API_KEY=ollama
 OPENAI_MODEL=qwen2.5:0.5b
+OPENAI_EMBEDDING_MODEL=nomic-embed-text
 ```
 
-## Utiliser une configuration YAML
+`OPENAI_MODEL` is the default for `llm_extractor`. `OPENAI_EMBEDDING_MODEL` is the default for `embedding_similarity`. Both can be overridden in their step's `params`. Use models supported by the API endpoint you configured. Do not commit `.env`; it is ignored by Git.
 
-La configuration d'exemple est [`examples/guardrails.yaml`](examples/guardrails.yaml). Les étapes s'exécutent dans l'ordre. `input.*` lit la requête d'origine et `outputs.*` lit une sortie produite par une étape précédente.
+## Use a YAML pipeline
+
+Load the complete example with:
 
 ```python
 from guardrails_kit import Guardrails
 
 guardrails = Guardrails.from_yaml("examples/guardrails.yaml")
-report = guardrails.validate_input(
-    {
-        "customer": {
-            "name": "Ada Lovelace",
-            "email": "ada@example.com",
-            "age": 36,
-            "message": "I was charged twice for my subscription.",
-        }
+report = guardrails.validate_input({
+    "customer": {
+        "name": "Ada Lovelace",
+        "email": "ada@example.com",
+        "age": 36,
+        "message": "I was charged twice for my subscription.",
     }
-)
+})
 
-print(report.passed, report.has_failures, report.has_errors)
 print(report.get_output("safe_message", str))
-print(report.get_output("classification"))  # instance Pydantic typée
+print(report.get_output("classification"))
 for check in report.checks:
     print(check.status.value, check.name, check.message)
 ```
 
-Le rapport sépare les étapes qui produisent des données (`transforms`, `outputs`) des vérifications (`checks`). `report.to_dict()` fournit une représentation sérialisable.
+The YAML file uses `version: 2` and an ordered `steps` list. Each step has a `kind` (`transform` or `check`), a registered `type`, a `phase`, an `input` reference, and optional `params`. A transform also declares an `output` name.
 
-## Définir les étapes directement en Python
+- `input.message` reads from the original value passed to `validate_input` or `validate_output`.
+- `outputs.safe_message` reads a named transform result produced earlier in the same phase.
+- `input` by itself refers to the complete original value.
 
-En Python, chaque étape déclare son opération (`TransformStep` ou `CheckStep`). Les composants passés à `using` ne portent ni nom ni phase ; ces informations appartiennent à l'étape. Une opération de transformation renvoie directement sa valeur ; `TransformStep` la place dans un `TransformResult`. Une opération de vérification renvoie un `CheckResult`.
+See [`examples/guardrails.yaml`](examples/guardrails.yaml) for a complete pipeline with PII redaction, structured LLM extraction, schema validation, similarity, and condition checks. LLM and embedding operations need an OpenAI-compatible client; regex and condition operations do not.
 
-Pour créer un transform réutilisable, hérite de `TransformOperation` et implémente `transform`. Son implémentation par défaut de `atransform` exécute cette méthode synchrone hors de la boucle asyncio ; les transforms avec I/O asynchrone peuvent redéfinir `atransform`.
+## Built-in operations
 
-```python
-from guardrails_kit import TransformOperation
+| Kind | YAML type | Purpose |
+| --- | --- | --- |
+| Transform | `pii_redaction` | Masks configured email, token, bearer-token, and name patterns. |
+| Transform | `llm_extractor` | Uses chat completions to parse text into a Pydantic model. |
+| Check | `condition` | Compares a value using operators such as `equals`, `not_equals`, `in`, and `gt`. |
+| Check | `embedding_similarity` | Compares text with examples and passes when the closest cosine similarity meets `threshold`. |
+| Check | `pydantic` | Validates the input against a Pydantic model. |
+| Check | `regex` | Checks whether a pattern is present or forbidden. |
 
+See the `params` for each operation in the example YAML and the corresponding classes under [`src/guardrails_kit/operations`](src/guardrails_kit/operations/).
 
-class NormalizeWhitespace(TransformOperation):
-    type_name = "normalize_whitespace"
+## Read the report
 
-    def transform(self, value: str) -> str:
-        return " ".join(value.split())
-```
+`validate_input()` and `validate_output()` return a `GuardrailsReport` for that phase. `report.outputs` maps output names to their original typed Python values; `report.get_output(name, Type)` optionally checks an output's type. `report.transforms` contains transform execution results and `report.checks` contains check verdicts. Use `report.to_dict()` when you need a serializable representation.
 
-Puis passe cette instance dans `using=NormalizeWhitespace()` sur une étape `TransformStep`.
+Check statuses have distinct meanings:
+
+- `pass`: the check accepted the value.
+- `fail`: the value did not satisfy the check.
+- `error`: the check or transform could not run because of a technical problem.
+- `skipped`: the check did not apply, for example because a configured missing-field policy asked to skip it.
+
+`report.passed` is false when the report has a failure or an execution error. A failed check is a business/data verdict; an error points to a problem running the operation.
+
+## Add a custom operation in Python
+
+Inherit from `TransformOperation` and implement `transform`, or inherit from `CheckOperation` and implement `check`. A check returns a `CheckResult`; a transform returns the value it produces. Put names, input/output references, phase, and enabled state on the corresponding `TransformStep` or `CheckStep`.
 
 ```python
 from guardrails_kit import (
-    CheckOperation,
-    CheckResult,
-    CheckStatus,
-    CheckStep,
-    Guardrails,
-    LLMExtractor,
-    PIIRedactor,
-    TransformStep,
+    CheckOperation, CheckResult, CheckStatus,
+    CheckStep, Guardrails,
 )
-from examples.models import MessageClassification
 
 
-class SummaryPresentCheck(CheckOperation):
-    type_name = "summary_present"
+class NonEmpty(CheckOperation):
+    type_name = "non_empty"
 
     def __init__(self):
-        super().__init__("summary_present")
+        super().__init__("non_empty")
 
-    def check(self, summary: str) -> CheckResult:
-        present = bool(summary.strip())
-        return self._result(
-            CheckStatus.PASS if present else CheckStatus.FAIL,
-            "Summary is present." if present else "Summary is empty.",
-        )
+    def check(self, value: str) -> CheckResult:
+        if value.strip():
+            return self._result(CheckStatus.PASS, "Value is not empty.")
+        return self._result(CheckStatus.FAIL, "Value is empty.")
 
 
-guardrails = Guardrails(
-    [
-        TransformStep(
-            name="redact_message",
-            source="input.message",
-            target="safe_message",
-            using=PIIRedactor(),
-        ),
-        TransformStep(
-            name="classify_message",
-            source="outputs.safe_message",
-            target="classification",
-            using=LLMExtractor(
-                output_model=MessageClassification,
-                prompt="Classify this support message.",
-            ),
-        ),
-        CheckStep(
-            name="summary_present",
-            source="outputs.classification.summary",
-            using=SummaryPresentCheck(),
-        ),
-    ]
-)
-
-report = guardrails.validate_input({"message": "Please help with my account."})
+guardrails = Guardrails([
+    CheckStep(name="message_present", source="input.message", using=NonEmpty()),
+])
+report = guardrails.validate_input({"message": "Hello"})
 ```
 
-## Étapes disponibles
+The built-in `LLMExtractor` and `EmbeddingSimilarityCheck` can also receive an injected OpenAI-compatible client when constructed in Python, which is useful for tests and custom client settings.
 
-- `transform / pii_redaction` : masque les informations personnelles reconnues par les regex intégrées.
-- `transform / llm_extractor` : extrait une structure Pydantic avec un appel au modèle configuré.
-- `check / pydantic` : valide une valeur avec un modèle Pydantic.
-- `check / regex` : vérifie un motif, avec possibilité d'interdire les correspondances.
-- `check / embedding_similarity` : compare un texte à des exemples avec un seuil configurable.
-- `check / condition` : compare une valeur à une constante (`equals`, `not_equals`, `in`, `gt`, etc.).
+## Repository map
 
-La détection PII actuelle est une première version basée sur des regex ; elle peut manquer des formats ou produire des faux positifs. Le rapport de transformation ne réexpose pas les valeurs remplacées.
+- `src/guardrails_kit/operations/` — reusable check and transform implementations.
+- `src/guardrails_kit/steps/` — pipeline step contracts and execution adapters.
+- `src/guardrails_kit/config.py` — YAML/dictionary configuration validation.
+- `src/guardrails_kit/pipeline.py` — sequential pipeline execution and reports.
+- `examples/` — runnable YAML and Python examples, including example Pydantic models.
+- `notebooks/` — interactive walkthrough.
+- `tests/` — automated unit tests.
+- `.github/workflows/ci.yml` — test and compile checks for supported Python versions.
 
-## Démo et notebook
+## Try the examples
 
-- Lancez `python -m examples.run_demo` depuis la racine du projet.
-- Ouvrez [`notebooks/guardrails_kit_demo.ipynb`](notebooks/guardrails_kit_demo.ipynb) pour essayer le pipeline YAML et les règles PII.
+Run the example pipeline from the repository root:
+
+```bash
+python -m examples.run_demo
+```
+
+Open [`notebooks/guardrails_kit_demo.ipynb`](notebooks/guardrails_kit_demo.ipynb) for an interactive walkthrough. Run the unit tests with:
+
+```bash
+python -m pytest
+```
+
+## Current limitation
+
+PII redaction currently uses regex patterns. It is useful as a simple local transform, but name detection is heuristic and it can miss formats or redact false positives. The name detector has a TODO for replacement with a model-based approach.
