@@ -109,16 +109,37 @@ See the `params` for each operation in the example YAML and the corresponding cl
 
 ## Read the report
 
-`validate_input()` and `validate_output()` return a `GuardrailsReport` for that phase. `report.step_results` contains every executed step result in pipeline order. Retrieve an item by index (`report.step_results[0]`) or by its configured step name (`report.step_results["customer_matches_schema"]`), or iterate over the collection. Each result has a `kind` field with the value `"transform"` or `"check"`, so callers can distinguish the result type without inspecting its class. A missing name raises `KeyError`. `report.outputs` maps output names to their original typed Python values; `report.get_output(name, Type)` optionally checks an output's type. For kind-specific access, `report.transforms` and `report.checks` are derived filtered views. Use `report.to_dict()` when you need a serializable representation; its `step_results` array keeps execution order and includes `kind`.
+`validate_input()` and `validate_output()` return a report for the requested phase.
+Use `step_results` to read step results in execution order, by index, or by name:
 
-Check statuses have distinct meanings:
+```python
+first = report.step_results[0]
+check = report.step_results["customer_matches_schema"]
 
-- `pass`: the check accepted the value.
-- `fail`: the value did not satisfy the check.
-- `error`: the check or transform could not run because of a technical problem.
-- `skipped`: the check did not apply, for example because a configured missing-field policy asked to skip it.
+print(first.kind)       # "transform" or "check"
+print(check.status)     # CheckStatus.PASS, for example
+```
 
-`report.passed` is false when the report has a failure or an execution error. A failed check is a business/data verdict; an error points to a problem running the operation.
+Looking up a name that does not exist raises `KeyError`. You can also iterate over `report.step_results`.
+
+Transform outputs are available by name in `report.outputs`. Use `get_output()` to retrieve one, optionally checking its type:
+
+```python
+safe_message = report.get_output("safe_message", str)
+```
+
+Use `report.to_dict()` when you need a serializable report. It keeps step results in execution order. `report.transforms` and `report.checks` are filtered views for code that only needs one kind of result.
+
+### Statuses
+
+| Status | Meaning |
+| --- | --- |
+| `pass` | The check accepted the value. |
+| `fail` | The value did not satisfy the check. |
+| `error` | The check or transform could not run because of a technical problem. |
+| `skipped` | The check did not apply, for example because a configured missing-field policy asked to skip it. |
+
+`report.passed` is `False` if any check fails or any step has an error. A failed check is a verdict about the data; an error means the operation could not run.
 
 ## Add a custom operation in Python
 
