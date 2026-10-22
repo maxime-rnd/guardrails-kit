@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 
 from ...config import CheckConfig
 from ...models import CheckResult, CheckStatus
-from ...utils.model_loader import load_model
+from ...utils.model_loader import resolve_model
 from .base import CheckOperation, parse_params
 
 
@@ -17,7 +17,7 @@ class PydanticParams(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    model: str  # dotted import path, e.g. "examples.models.Customer"
+    model: str | dict[str, Any]  # import path or inline JSON Schema
 
 
 class PydanticCheck(CheckOperation):
@@ -28,19 +28,22 @@ class PydanticCheck(CheckOperation):
 
     type_name = "pydantic"
 
-    def __init__(self, name: str, model: type[BaseModel], model_path: str) -> None:
+    def __init__(self, name: str, model: type[BaseModel], model_source: str) -> None:
         super().__init__(name)
         self.model = model
-        self.model_path = model_path
+        self.model_source = model_source
 
     @classmethod
     def from_config(cls, config: CheckConfig) -> Self:
         params = parse_params(PydanticParams, config)
+        model_source = (
+            params.model if isinstance(params.model, str) else "inline JSON Schema"
+        )
         try:
-            model = load_model(params.model)
+            model = resolve_model(params.model)
         except Exception as exc:
             raise type(exc)(f"Check {config.name!r}: {exc}") from exc
-        return cls(config.name, model, params.model)
+        return cls(config.name, model, model_source)
 
     def check(self, data: Any) -> CheckResult:
         try:
@@ -60,10 +63,10 @@ class PydanticCheck(CheckOperation):
                 CheckStatus.FAIL,
                 f"Data does not match {self.model.__name__}: {len(errors)} validation error(s) "
                 f"in {field_list}.",
-                {"model": self.model_path, "errors": errors},
+                {"model": self.model_source, "errors": errors},
             )
         return self._result(
             CheckStatus.PASS,
             f"Data matches {self.model.__name__}.",
-            {"model": self.model_path},
+            {"model": self.model_source},
         )

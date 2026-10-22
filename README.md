@@ -132,15 +132,30 @@ The YAML file uses `version: 2` and an ordered `steps` list. Each step has a `ki
 
 See [`examples/guardrails.yaml`](examples/guardrails.yaml) for a complete pipeline with PII redaction, structured LLM extraction, schema validation, similarity, and condition checks. LLM and embedding operations need an OpenAI-compatible client; regex and condition operations do not.
 
+## Streamlit playground
+
+The [visual playground](playground/streamlit_app.py) separates pipeline setup from step configuration: first choose which transforms and checks to include, then configure each step, test the pipeline with a text message or JSON object, and download the generated YAML. A simple field editor is provided by default; advanced users can switch to editing the JSON Schema directly.
+
+Install the optional dependency and start the app from the repository root:
+
+```bash
+python -m pip install -e ".[playground]"
+streamlit run playground/streamlit_app.py
+```
+
+If LLM extraction is enabled, configure `.env` as described above. Turn it off to try a local-only pipeline without an API call.
+
+The LLM extractor accepts either an import path to a Pydantic model or an inline JSON Schema in `params.output_model`. The Pydantic check likewise accepts an import path or an inline schema in `params.model`. The playground uses the same schema for extraction and validation. Inline schemas support objects, nested objects, arrays, primitive types, required and optional fields, enums, nullable fields, and local `$ref` values. Recursive references and advanced JSON Schema validation keywords are not supported yet.
+
 ## Built-in operations
 
 | Kind | YAML type | Purpose |
 | --- | --- | --- |
 | Transform | `pii_redaction` | Masks configured email, token, bearer-token, and name patterns. |
-| Transform | `llm_extractor` | Uses chat completions to parse text into a Pydantic model. |
+| Transform | `llm_extractor` | Uses chat completions to parse text into an imported Pydantic model or an inline JSON Schema. |
 | Check | `condition` | Compares a value using operators such as `equals`, `not_equals`, `in`, and `gt`. |
 | Check | `embedding_similarity` | Compares text with examples and passes when the closest cosine similarity meets `threshold`. |
-| Check | `pydantic` | Validates the input against a Pydantic model. |
+| Check | `pydantic` | Validates the input against an imported Pydantic model or an inline JSON Schema. |
 | Check | `regex` | Checks whether a pattern is present or forbidden. |
 
 See the `params` for each operation in the example YAML and the corresponding classes under [`src/guardrails_kit/operations`](src/guardrails_kit/operations/).

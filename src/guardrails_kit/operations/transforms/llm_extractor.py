@@ -25,7 +25,7 @@ class LLMExtractorParams(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     prompt: str = Field(min_length=1)
-    output_model: type[BaseModel] | str
+    output_model: type[BaseModel] | str | dict[str, Any]
     model: str | None = None
     max_output_tokens: int | None = Field(default=None, gt=0)
 
@@ -39,8 +39,8 @@ class LLMExtractorParams(BaseModel):
     @field_validator("output_model")
     @classmethod
     def _output_model_path_is_not_blank(
-        cls, value: type[BaseModel] | str
-    ) -> type[BaseModel] | str:
+        cls, value: type[BaseModel] | str | dict[str, Any]
+    ) -> type[BaseModel] | str | dict[str, Any]:
         if isinstance(value, str) and not value.strip():
             raise ValueError("output_model path must not be empty")
         return value
@@ -131,7 +131,7 @@ class LLMExtractor(TransformOperation):
     def __init__(
         self,
         *,
-        output_model: type[BaseModel] | str,
+        output_model: type[BaseModel] | str | dict[str, Any],
         prompt: str,
         model: str | None = None,
         max_output_tokens: int | None = None,
