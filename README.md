@@ -134,7 +134,7 @@ See [`examples/guardrails.yaml`](examples/guardrails.yaml) for a complete pipeli
 
 ## Streamlit playground
 
-The [visual playground](playground/streamlit_app.py) separates pipeline setup from step configuration: first choose which transforms and checks to include, then configure each step, test the pipeline with a text message or JSON object, and download the generated YAML. A simple field editor is provided by default; advanced users can switch to editing the JSON Schema directly.
+The [visual playground](playground/streamlit_app.py) lets users build pipelines from all built-in operations: PII redaction, LLM extraction, condition, regex, embedding similarity, and Pydantic validation. Add an operation more than once, reorder or remove steps, configure the phase, input/output references and operation-specific parameters, then test with text or a JSON object and export YAML. Structured output supports a visual schema editor, raw JSON Schema, or a Python Pydantic model path.
 
 Install the optional dependency and start the app from the repository root:
 
