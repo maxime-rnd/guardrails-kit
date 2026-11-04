@@ -25,7 +25,6 @@ class CheckStep(Step):
             update={
                 "name": self.name,
                 "check_type": operation_type(self.using),
-                "phase": self.phase,
                 "details": {"input": self.source, **checked.details},
                 "duration_ms": duration_ms,
             }
@@ -50,7 +49,6 @@ class CheckStep(Step):
         return CheckResult(
             name=self.name,
             check_type=operation_type(self.using),
-            phase=self.phase,
             status=CheckStatus.ERROR,
             message=f"Step raised {type(exc).__name__}: {exc}",
             details={"exception_type": type(exc).__name__},

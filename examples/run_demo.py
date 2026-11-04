@@ -22,7 +22,7 @@ def main() -> None:
             "message": "My name is Ada Lovelace. I was charged twice for my subscription.",
         }
     }
-    report = guardrails.validate_input(payload)
+    report = guardrails.run(payload)
 
     print(
         f"passed={report.passed} failures={report.has_failures} errors={report.has_errors}"
@@ -37,6 +37,12 @@ def main() -> None:
         print("\nSanitized message:", report.get_output("safe_message", str))
     if "classification" in report.outputs:
         print("\nClassification:", report.get_output("classification"))
+
+    output_guardrails = Guardrails.from_yaml(ROOT / "examples" / "output_guardrails.yaml")
+    output_report = output_guardrails.run(
+        {"answer": "Your subscription has been corrected.", "confidence": 0.95}
+    )
+    print("\nOutput checks passed:", output_report.passed)
 
 
 if __name__ == "__main__":

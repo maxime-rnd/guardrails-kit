@@ -20,7 +20,6 @@ from .config import (
 from .models import (
     CheckResult,
     GuardrailsReport,
-    Phase,
     StepResults,
     TransformResult,
 )
@@ -63,7 +62,7 @@ class Guardrails:
             configured.append((step_config(step), step))
 
         PipelineConfig.model_validate(
-            {"version": 2, "steps": [config.model_dump() for config, _ in configured]}
+            {"steps": [config.model_dump() for config, _ in configured]}
         )
         self._steps = tuple(configured)
 
@@ -86,7 +85,6 @@ class Guardrails:
             check_config = CheckConfig(
                 name=step.name,
                 type=step.type,
-                phase=step.phase,
                 enabled=step.enabled,
                 params=step.params,
             )
@@ -98,14 +96,12 @@ class Guardrails:
                 name=step.name,
                 source=step.input,
                 using=operation,
-                phase=step.phase,
                 enabled=step.enabled,
             )
 
         transform_config = TransformConfig(
             name=step.name,
             type=step.type,
-            phase=step.phase,
             enabled=step.enabled,
             params=step.params,
         )
@@ -115,7 +111,6 @@ class Guardrails:
             source=step.input,
             target=step.output or "",
             using=operation,
-            phase=step.phase,
             enabled=step.enabled,
         )
 
@@ -131,14 +126,6 @@ class Guardrails:
     ) -> Guardrails:
         return cls.from_config(load_config(path), openai_client=openai_client)
 
-    def steps_for(self, phase: Phase | str) -> tuple[PipelineStepConfig, ...]:
-        selected_phase = Phase(phase)
-        return tuple(
-            config
-            for config, _ in self._steps
-            if config.phase is selected_phase and config.enabled
-        )
-
     @staticmethod
     def _collect(
         result: TransformResult | CheckResult,
@@ -149,12 +136,9 @@ class Guardrails:
 
     @staticmethod
     def _report(
-        phase: Phase,
-        outputs: dict[str, Any],
-        step_results: list[TransformResult | CheckResult],
+        outputs: dict[str, Any], step_results: list[TransformResult | CheckResult]
     ) -> GuardrailsReport:
         return GuardrailsReport(
-            phase=phase,
             outputs=outputs,
             step_results=StepResults(items=tuple(step_results)),
         )
@@ -177,33 +161,25 @@ class Guardrails:
             elapsed_ms = (time.perf_counter() - started) * 1000
             return step.error_result(exc, elapsed_ms)
 
-    def run(self, phase: Phase | str, data: Any) -> GuardrailsReport:
-        selected_phase = Phase(phase)
+    def run(self, data: Any) -> GuardrailsReport:
         outputs: dict[str, Any] = {}
         step_results: list[TransformResult | CheckResult] = []
 
         for config, step in self._steps:
-            if not config.enabled or config.phase is not selected_phase:
+            if not config.enabled:
                 continue
             result = self._run_step(config, step, data, outputs)
             self._collect(result, outputs)
             step_results.append(result)
 
-        return self._report(selected_phase, outputs, step_results)
+        return self._report(outputs, step_results)
 
-    def validate_input(self, data: Any) -> GuardrailsReport:
-        return self.run(Phase.INPUT, data)
-
-    def validate_output(self, data: Any) -> GuardrailsReport:
-        return self.run(Phase.OUTPUT, data)
-
-    async def arun(self, phase: Phase | str, data: Any) -> GuardrailsReport:
-        selected_phase = Phase(phase)
+    async def arun(self, data: Any) -> GuardrailsReport:
         outputs: dict[str, Any] = {}
         step_results: list[TransformResult | CheckResult] = []
 
         for config, step in self._steps:
-            if not config.enabled or config.phase is not selected_phase:
+            if not config.enabled:
                 continue
             started = time.perf_counter()
             try:
@@ -218,10 +194,4 @@ class Guardrails:
             self._collect(result, outputs)
             step_results.append(result)
 
-        return self._report(selected_phase, outputs, step_results)
-
-    async def avalidate_input(self, data: Any) -> GuardrailsReport:
-        return await self.arun(Phase.INPUT, data)
-
-    async def avalidate_output(self, data: Any) -> GuardrailsReport:
-        return await self.arun(Phase.OUTPUT, data)
+        return self._report(outputs, step_results)

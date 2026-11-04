@@ -8,7 +8,7 @@ from typing import Any, ClassVar, Self
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
-from ..models import CheckResult, Phase, TransformResult
+from ..models import CheckResult, TransformResult
 
 
 class Step(BaseModel, ABC):
@@ -19,7 +19,6 @@ class Step(BaseModel, ABC):
     name: str
     source: str
     using: Any
-    phase: Phase = Phase.INPUT
     enabled: bool = True
 
     operation_method: ClassVar[str]

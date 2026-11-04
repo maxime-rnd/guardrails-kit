@@ -12,11 +12,6 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 OutputT = TypeVar("OutputT")
 
 
-class Phase(StrEnum):
-    INPUT = "input"
-    OUTPUT = "output"
-
-
 class CheckStatus(StrEnum):
     PASS = "pass"
     FAIL = "fail"
@@ -37,7 +32,6 @@ class TransformResult(BaseModel):
     kind: Literal["transform"] = "transform"
     name: str
     transform_type: str
-    phase: Phase
     status: TransformStatus
     output_name: str
     value: Any
@@ -47,13 +41,12 @@ class TransformResult(BaseModel):
 
 
 class CheckResult(BaseModel):
-    """Check result; the pipeline step supplies its phase."""
+    """Result returned by one check."""
 
     model_config = ConfigDict(frozen=True)
     kind: Literal["check"] = "check"
     name: str
     check_type: str
-    phase: Phase | None = None
     status: CheckStatus
     message: str
     details: dict[str, Any] = Field(default_factory=dict)
@@ -107,10 +100,9 @@ class StepResults(BaseModel):
 
 
 class GuardrailsReport(BaseModel):
-    """Ordered step results and named transform outputs for one pipeline phase."""
+    """Ordered step results and named transform outputs for one pipeline run."""
 
     model_config = ConfigDict(frozen=True)
-    phase: Phase
     outputs: dict[str, Any] = Field(default_factory=dict)
     step_results: StepResults = Field(default_factory=StepResults)
 
@@ -205,7 +197,6 @@ class GuardrailsReport(BaseModel):
             return value
 
         return {
-            "phase": self.phase.value,
             "passed": self.passed,
             "has_failures": self.has_failures,
             "has_errors": self.has_errors,

@@ -16,7 +16,6 @@ from pydantic import (
 )
 
 from .exceptions import ConfigError
-from .models import Phase
 
 
 class CheckConfig(BaseModel):
@@ -26,7 +25,6 @@ class CheckConfig(BaseModel):
 
     name: str = Field(min_length=1)
     type: str = Field(min_length=1)
-    phase: Phase
     enabled: StrictBool = True
     params: dict[str, Any] = Field(default_factory=dict)
 
@@ -38,7 +36,6 @@ class TransformConfig(BaseModel):
 
     name: str = Field(min_length=1)
     type: str = Field(min_length=1)
-    phase: Phase
     enabled: StrictBool = True
     params: dict[str, Any] = Field(default_factory=dict)
 
@@ -51,7 +48,6 @@ class PipelineStepConfig(BaseModel):
     name: str = Field(min_length=1)
     kind: Literal["transform", "check"]
     type: str = Field(min_length=1)
-    phase: Phase
     input: str = Field(min_length=1)
     output: str | None = None
     enabled: StrictBool = True
@@ -77,17 +73,16 @@ class PipelineStepConfig(BaseModel):
 
 
 class PipelineConfig(BaseModel):
-    """Version 2 ordered pipeline configuration."""
+    """Ordered pipeline configuration."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    version: Literal[2]
     steps: list[PipelineStepConfig] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _validate_names_and_references(self) -> PipelineConfig:
         names: set[str] = set()
-        outputs: dict[str, tuple[Phase, bool]] = {}
+        outputs: dict[str, bool] = {}
         output_names: set[str] = set()
         for step in self.steps:
             if step.name in names:
@@ -100,20 +95,16 @@ class PipelineConfig(BaseModel):
                         f"step {step.name!r} references output {output_name!r} "
                         "before it is produced"
                     )
-                output_phase, output_enabled = outputs[output_name]
+                output_enabled = outputs[output_name]
                 if not output_enabled:
                     raise ValueError(
                         f"step {step.name!r} depends on disabled output {output_name!r}"
-                    )
-                if output_phase is not step.phase:
-                    raise ValueError(
-                        f"step {step.name!r} must reference an output from the same phase"
                     )
             if step.output is not None:
                 if step.output in output_names:
                     raise ValueError(f"duplicate output name {step.output!r}")
                 output_names.add(step.output)
-                outputs[step.output] = (step.phase, step.enabled)
+                outputs[step.output] = step.enabled
         return self
 
 
@@ -127,7 +118,7 @@ def format_validation_error(exc: ValidationError) -> str:
 
 
 def parse_config(raw: Any) -> PipelineConfig:
-    """Validate a version 2 pipeline configuration mapping."""
+    """Validate a pipeline configuration mapping."""
     if not isinstance(raw, dict):
         raise ConfigError("The configuration root must be a mapping.")
     try:
@@ -139,7 +130,7 @@ def parse_config(raw: Any) -> PipelineConfig:
 
 
 def load_config(path: str | Path) -> PipelineConfig:
-    """Read and validate a version 2 pipeline YAML file."""
+    """Read and validate a pipeline YAML file."""
     file_path = Path(path)
     try:
         text = file_path.read_text(encoding="utf-8")

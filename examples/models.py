@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class Customer(BaseModel):
-    """Payload received by the application (input phase)."""
+    """Payload received by the application."""
 
     name: str = Field(min_length=1)
     email: str
@@ -29,7 +29,7 @@ class StrictCustomer(Customer):
 
 
 class SupportReply(BaseModel):
-    """Answer produced by the application or agent (output phase)."""
+    """Answer produced by the application or agent."""
 
     answer: str = Field(min_length=1)
     confidence: float = Field(ge=0, le=1)

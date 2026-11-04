@@ -1,0 +1,16 @@
+steps:
+  - name: reply_matches_schema
+    kind: check
+    type: pydantic
+    input: input
+    params:
+      model: examples.models.SupportReply
+
+  - name: reply_has_no_api_key
+    kind: check
+    type: regex
+    input: input.answer
+    params:
+      pattern: '\bsk-[A-Za-z0-9_-]{16,}\b'
+      mode: search
+      forbid: true

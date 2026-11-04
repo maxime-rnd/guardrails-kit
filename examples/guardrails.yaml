@@ -1,10 +1,7 @@
-version: 2
-
 steps:
   - name: redact_customer_message
     kind: transform
     type: pii_redaction
-    phase: input
     input: input.customer.message
     output: safe_message
     params:
@@ -13,7 +10,6 @@ steps:
   - name: extract_message_classification
     kind: transform
     type: llm_extractor
-    phase: input
     input: outputs.safe_message
     output: classification
     params:
@@ -27,7 +23,6 @@ steps:
   - name: customer_matches_schema
     kind: check
     type: pydantic
-    phase: input
     input: input.customer
     params:
       model: examples.models.Customer
@@ -35,7 +30,6 @@ steps:
   - name: message_is_support_related
     kind: check
     type: embedding_similarity
-    phase: input
     input: outputs.safe_message
     params:
       threshold: 0.78
@@ -49,27 +43,8 @@ steps:
   - name: extracted_summary_is_not_empty
     kind: check
     type: condition
-    phase: input
     input: outputs.classification.summary
     params:
       operator: not_equals
       value: ""
-
-  - name: reply_matches_schema
-    kind: check
-    type: pydantic
-    phase: output
-    input: input
-    params:
-      model: examples.models.SupportReply
-
-  - name: reply_has_no_api_key
-    kind: check
-    type: regex
-    phase: output
-    input: input.answer
-    params:
-      pattern: '\bsk-[A-Za-z0-9_-]{16,}\b'
-      mode: search
-      forbid: true
 

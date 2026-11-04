@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import html
 import json
 import os
 import re
@@ -147,7 +148,6 @@ def _new_step(operation_type: str) -> dict[str, Any]:
         "name": f"{slug}_{step_number}",
         "kind": operation["kind"],
         "type": operation_type,
-        "phase": "input",
         "enabled": True,
         "input": "input.message" if operation_type != "pydantic" else "input",
         "output": output_name if is_transform else None,
@@ -557,7 +557,6 @@ def _build_config(
             "name": step["name"],
             "kind": step["kind"],
             "type": step["type"],
-            "phase": step["phase"],
             "enabled": step["enabled"],
             "input": step["input"],
             "params": params,
@@ -565,7 +564,7 @@ def _build_config(
         if step["kind"] == "transform":
             config_step["output"] = step["output"]
         configs.append(config_step)
-    return {"version": 2, "steps": configs}
+    return {"steps": configs}
 
 
 def _move_step(step_index: int, offset: int) -> None:
@@ -633,7 +632,7 @@ with prepare_tab:
             operation = OPERATION_BY_TYPE[step["type"]]
             with st.container(border=True):
                 st.markdown(f"**{index + 1}. {step['name']}**")
-                st.caption(f"{operation['label']} · {step['phase']} · {'transform' if step['kind'] == 'transform' else 'check'}")
+                st.caption(f"{operation['label']} · {'transform' if step['kind'] == 'transform' else 'check'}")
                 controls = st.columns([1.2, 1, 1, 1])
                 if controls[0].button("Configure", key=f"configure_{step['id']}", use_container_width=True):
                     st.session_state.selected_step_id = step["id"]
@@ -688,20 +687,11 @@ with configure_tab:
                     "Step enabled", value=selected_step["enabled"],
                     key=f"{selected_step['id']}_enabled",
                 )
-            phase_col, input_col = st.columns([1, 2])
-            with phase_col:
-                selected_step["phase"] = st.selectbox(
-                    "When to run", ["input", "output"],
-                    format_func={"input": "On input", "output": "On output"}.get,
-                    index=["input", "output"].index(selected_step["phase"]),
-                    key=f"{selected_step['id']}_phase",
-                )
-            with input_col:
-                selected_step["input"] = st.text_input(
-                    "Data to process", value=selected_step["input"],
-                    key=f"{selected_step['id']}_input",
-                    help="Examples: input.message, input.customer.email, outputs.classification.summary. Use 'input' for the entire object.",
-                )
+            selected_step["input"] = st.text_input(
+                "Data to process", value=selected_step["input"],
+                key=f"{selected_step['id']}_input",
+                help="Examples: input.message, input.customer.email, outputs.classification.summary. Use 'input' for the entire object.",
+            )
             if selected_step["kind"] == "transform":
                 selected_step["output"] = st.text_input(
                     "Name of the output", value=selected_step["output"],
@@ -742,12 +732,6 @@ except Exception as exc:
 yaml_text = yaml.safe_dump(config, sort_keys=False, allow_unicode=True)
 
 with test_tab:
-    test_phase = st.selectbox(
-        "Pipeline phase", ["input", "output"],
-        format_func={"input": "Input pipeline", "output": "Output pipeline"}.get,
-        key="test_phase",
-        help="Only steps configured for this phase will run.",
-    )
     test_mode = st.radio(
         "Test input format", ["Text message", "JSON object"],
         horizontal=True, key="test_input_mode_en",
@@ -816,20 +800,25 @@ with test_tab:
 
             pipeline = Guardrails.from_dict(config, openai_client=openai_client)
             with st.spinner("Running pipeline…"):
-                report = (
-                    pipeline.validate_input(input_data)
-                    if test_phase == "input"
-                    else pipeline.validate_output(input_data)
-                )
+                report = pipeline.run(input_data)
             if report.passed:
                 st.success("The pipeline completed without failures or errors.")
             else:
                 st.warning("The pipeline reported a failure or error.")
             for index, result in enumerate(report.step_results):
                 with st.container(border=True):
+                    kind_label = html.escape(str(result.kind).title())
+                    status_label = html.escape(str(result.status.value).upper())
+                    status_color = "#16803c" if result.status.value in {"pass", "success"} else "#c62828"
                     st.markdown(
-                        f"**{index + 1}. {result.name}** · `{result.kind}` · "
-                        f"`{result.status.value}`"
+                        f"<div style='display:flex;align-items:center;gap:.5rem;flex-wrap:wrap'>"
+                        f"<strong>{index + 1}. {html.escape(result.name)}</strong>"
+                        f"<span style='background:#e8f1ff;color:#185abc;padding:.15rem .55rem;"
+                        f"border-radius:999px;font-size:.8rem;font-weight:600'>{kind_label}</span>"
+                        f"<span style='background:{status_color}18;color:{status_color};"
+                        f"padding:.15rem .55rem;border-radius:999px;font-size:.8rem;"
+                        f"font-weight:700'>{status_label}</span></div>",
+                        unsafe_allow_html=True,
                     )
                     st.write(result.message)
             if report.outputs:

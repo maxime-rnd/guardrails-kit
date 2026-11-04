@@ -43,13 +43,11 @@ def test_pipeline_config_rejects_invalid_references_and_duplicates() -> None:
     with pytest.raises(ValidationError):
         PipelineConfig.model_validate(
             {
-                "version": 2,
                 "steps": [
                     {
                         "name": "check-first",
                         "kind": "check",
                         "type": "regex",
-                        "phase": "input",
                         "input": "outputs.missing",
                     }
                 ],
@@ -59,20 +57,17 @@ def test_pipeline_config_rejects_invalid_references_and_duplicates() -> None:
     with pytest.raises(ConfigError):
         parse_config(
             {
-                "version": 2,
                 "steps": [
                     {
                         "name": "same",
                         "kind": "check",
                         "type": "regex",
-                        "phase": "input",
                         "input": "input.message",
                     },
                     {
                         "name": "same",
                         "kind": "check",
                         "type": "regex",
-                        "phase": "input",
                         "input": "input.message",
                     },
                 ],
@@ -83,13 +78,11 @@ def test_pipeline_config_rejects_invalid_references_and_duplicates() -> None:
 def test_from_dict_builds_operations_without_external_services() -> None:
     guardrails = Guardrails.from_dict(
         {
-            "version": 2,
             "steps": [
                 {
                     "name": "has-text",
                     "kind": "check",
                     "type": "condition",
-                    "phase": "input",
                     "input": "input.message",
                     "params": {"operator": "not_equals", "value": ""},
                 },
@@ -97,7 +90,6 @@ def test_from_dict_builds_operations_without_external_services() -> None:
                     "name": "redact",
                     "kind": "transform",
                     "type": "pii_redaction",
-                    "phase": "input",
                     "input": "input.message",
                     "output": "safe_message",
                     "params": {"redact": ["email"]},
@@ -106,7 +98,7 @@ def test_from_dict_builds_operations_without_external_services() -> None:
         }
     )
 
-    report = guardrails.validate_input({"message": "Contact user@example.com"})
+    report = guardrails.run({"message": "Contact user@example.com"})
 
     assert report.step_results[0].name == "has-text"
     assert report.step_results[0].status is CheckStatus.PASS

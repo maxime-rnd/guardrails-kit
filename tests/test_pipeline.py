@@ -61,7 +61,7 @@ def make_pipeline(expected: str = "HELLO") -> Guardrails:
 
 
 def test_pipeline_runs_transforms_before_checks_and_routes_outputs() -> None:
-    report = make_pipeline().validate_input({"message": "hello"})
+    report = make_pipeline().run({"message": "hello"})
 
     assert report.passed
     assert report.get_output("normalized", str) == "HELLO"
@@ -71,11 +71,11 @@ def test_pipeline_runs_transforms_before_checks_and_routes_outputs() -> None:
     assert report.step_results[1].name == "matches"
     assert report.step_results[1].kind == "check"
     assert report.step_results["matches"].status is CheckStatus.PASS
-    assert report.step_results[1].phase.value == "input"
+    assert "phase" not in report.to_dict()
 
 
 def test_pipeline_records_business_failure() -> None:
-    report = make_pipeline(expected="OTHER").validate_input({"message": "hello"})
+    report = make_pipeline(expected="OTHER").run({"message": "hello"})
 
     assert not report.passed
     assert report.has_failures
@@ -94,7 +94,7 @@ def test_pipeline_converts_operation_exceptions_to_error_results() -> None:
         ]
     )
 
-    report = pipeline.validate_input("value")
+    report = pipeline.run("value")
 
     assert report.has_errors
     assert report.step_results["broken"].status is TransformStatus.ERROR
@@ -102,7 +102,7 @@ def test_pipeline_converts_operation_exceptions_to_error_results() -> None:
 
 
 def test_async_pipeline_uses_same_contracts() -> None:
-    report = asyncio.run(make_pipeline().avalidate_input({"message": "hello"}))
+    report = asyncio.run(make_pipeline().arun({"message": "hello"}))
 
     assert report.passed
     assert report.get_output("normalized", str) == "HELLO"

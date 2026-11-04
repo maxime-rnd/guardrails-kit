@@ -6,7 +6,7 @@ import asyncio
 import time
 from typing import Any, ClassVar
 
-from ..models import Phase, TransformResult, TransformStatus
+from ..models import TransformResult, TransformStatus
 from ..operations.transforms.base import TransformOperation
 from .base import Step, operation_type
 
@@ -23,7 +23,6 @@ class TransformStep(Step):
         return TransformResult(
             name=self.name,
             transform_type=operation_type(self.using),
-            phase=self.phase,
             status=TransformStatus.SUCCESS,
             output_name=self.target,
             value=value,
@@ -51,7 +50,6 @@ class TransformStep(Step):
         return TransformResult(
             name=self.name,
             transform_type=operation_type(self.using),
-            phase=self.phase,
             status=TransformStatus.ERROR,
             output_name=self.target,
             value=None,

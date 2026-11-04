@@ -36,7 +36,7 @@ guardrails = Guardrails([
     ),
 ])
 
-report = guardrails.validate_input({
+report = guardrails.run({
     "message": "Email Ada at ada@example.com",
 })
 
@@ -66,12 +66,10 @@ OPENAI_EMBEDDING_MODEL=nomic-embed-text
 Here is a small pipeline that does not call a model. Save it as `guardrails.yaml`:
 
 ```yaml
-version: 2
 steps:
   - name: redact_message
     kind: transform
     type: pii_redaction
-    phase: input
     input: input.message
     output: safe_message
     params:
@@ -80,7 +78,6 @@ steps:
   - name: message_present
     kind: check
     type: condition
-    phase: input
     input: outputs.safe_message
     params:
       operator: not_equals
@@ -93,7 +90,7 @@ Load and run it like this:
 from guardrails_kit import Guardrails
 
 guardrails = Guardrails.from_yaml("guardrails.yaml")
-report = guardrails.validate_input({
+report = guardrails.run({
     "message": "Contact me at ada@example.com",
 })
 
@@ -107,7 +104,7 @@ For a complete example with LLM extraction and embedding similarity, load [`exam
 from guardrails_kit import Guardrails
 
 guardrails = Guardrails.from_yaml("examples/guardrails.yaml")
-report = guardrails.validate_input({
+report = guardrails.run({
     "customer": {
         "name": "Ada Lovelace",
         "email": "ada@example.com",
@@ -124,17 +121,19 @@ print(report.step_results[0])
 print(report.step_results["customer_matches_schema"])
 ```
 
-The YAML file uses `version: 2` and an ordered `steps` list. Each step has a `kind` (`transform` or `check`), a registered `type`, a `phase`, an `input` reference, and optional `params`. A transform also declares an `output` name.
+The YAML file contains an ordered `steps` list. Each step has a `kind` (`transform` or `check`), a registered `type`, an `input` reference, and optional `params`. A transform also declares an `output` name.
 
-- `input.message` reads from the original value passed to `validate_input` or `validate_output`.
-- `outputs.safe_message` reads a named transform result produced earlier in the same phase.
+- `input.message` reads from the value passed to `run`.
+- `outputs.safe_message` reads a named transform result produced earlier in the same pipeline run.
 - `input` by itself refers to the complete original value.
 
 See [`examples/guardrails.yaml`](examples/guardrails.yaml) for a complete pipeline with PII redaction, structured LLM extraction, schema validation, similarity, and condition checks. LLM and embedding operations need an OpenAI-compatible client; regex and condition operations do not.
 
+If you want separate input and output processing, create two independent pipeline objects. For example, load [`examples/output_guardrails.yaml`](examples/output_guardrails.yaml) into a second `Guardrails` instance and call `run()` on the response object.
+
 ## Streamlit playground
 
-The [visual playground](playground/streamlit_app.py) lets users build pipelines from all built-in operations: PII redaction, LLM extraction, condition, regex, embedding similarity, and Pydantic validation. Add an operation more than once, reorder or remove steps, configure the phase, input/output references and operation-specific parameters, then test with text or a JSON object and export YAML. Structured output supports a visual schema editor, raw JSON Schema, or a Python Pydantic model path.
+The [visual playground](playground/streamlit_app.py) lets users build pipelines from all built-in operations: PII redaction, LLM extraction, condition, regex, embedding similarity, and Pydantic validation. Add an operation more than once, reorder or remove steps, configure input/output references and operation-specific parameters, then test with text or a JSON object and export YAML. Structured output supports a visual schema editor, raw JSON Schema, or a Python Pydantic model path. Create separate `Guardrails` objects for input and output processing when needed.
 
 Install the optional dependency and start the app from the repository root:
 
@@ -162,8 +161,7 @@ See the `params` for each operation in the example YAML and the corresponding cl
 
 ## Read the report
 
-`validate_input()` and `validate_output()` return a report for the requested phase.
-Use `step_results` to read step results in execution order, by index, or by name:
+`run()` returns a report for one pipeline execution. Use `step_results` to read step results in execution order, by index, or by name:
 
 ```python
 first = report.step_results[0]
@@ -196,7 +194,7 @@ Use `report.to_dict()` when you need a serializable report. It keeps step result
 
 ## Add a custom operation in Python
 
-Inherit from `TransformOperation` and implement `transform`, or inherit from `CheckOperation` and implement `check`. A check returns a `CheckResult`; a transform returns the value it produces. Put names, input/output references, phase, and enabled state on the corresponding `TransformStep` or `CheckStep`.
+Inherit from `TransformOperation` and implement `transform`, or inherit from `CheckOperation` and implement `check`. A check returns a `CheckResult`; a transform returns the value it produces. Put names, input/output references, and enabled state on the corresponding `TransformStep` or `CheckStep`.
 
 ```python
 from guardrails_kit import (
@@ -220,7 +218,7 @@ class NonEmpty(CheckOperation):
 guardrails = Guardrails([
     CheckStep(name="message_present", source="input.message", using=NonEmpty()),
 ])
-report = guardrails.validate_input({"message": "Hello"})
+report = guardrails.run({"message": "Hello"})
 ```
 
 The built-in `LLMExtractor` and `EmbeddingSimilarityCheck` can also receive an injected OpenAI-compatible client when constructed in Python, which is useful for tests and custom client settings.
@@ -334,7 +332,7 @@ guardrails = Guardrails([
     ),
 ])
 
-report = guardrails.validate_input({
+report = guardrails.run({
     "message": "My name is Ada Lovelace. Email me at ada@example.com.   "
                "I was charged twice for my subscription."
 })

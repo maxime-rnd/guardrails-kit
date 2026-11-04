@@ -75,7 +75,7 @@ def call_sync(method: Callable[..., Any], **kwargs: Any) -> Any:
     """Call a synchronous SDK method, rejecting async clients on the sync API."""
     if inspect.iscoroutinefunction(method):
         raise RuntimeError(
-            "An async OpenAI client was supplied; use avalidate_input/output()."
+            "An async OpenAI client was supplied; use arun()."
         )
     result = method(**kwargs)
     if inspect.isawaitable(result):
@@ -83,7 +83,7 @@ def call_sync(method: Callable[..., Any], **kwargs: Any) -> Any:
         if close is not None:
             close()
         raise RuntimeError(
-            "An async OpenAI client was supplied; use avalidate_input/output()."
+            "An async OpenAI client was supplied; use arun()."
         )
     return result
 
