@@ -7,7 +7,9 @@ import html
 import json
 import os
 import re
+import sys
 import uuid
+from pathlib import Path
 from typing import Any
 
 import streamlit as st
@@ -17,6 +19,12 @@ from guardrails_kit import Guardrails
 from guardrails_kit.config import parse_config
 from guardrails_kit.utils.model_loader import model_from_json_schema, resolve_model
 from guardrails_kit.utils.openai import load_project_env
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+PRESETS_DIR = PROJECT_ROOT / "examples" / "presets"
 
 
 DEFAULT_SCHEMA: dict[str, Any] = {
@@ -575,6 +583,65 @@ def _move_step(step_index: int, offset: int) -> None:
     st.rerun()
 
 
+def _load_presets() -> list[dict[str, Any]]:
+    """Load the local example preset catalog from each preset manifest."""
+    presets = []
+    for manifest_path in sorted(PRESETS_DIR.glob("*/manifest.yaml")):
+        try:
+            manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+            if not isinstance(manifest, dict) or not manifest.get("id"):
+                continue
+            manifest["_directory"] = manifest_path.parent
+            presets.append(manifest)
+        except (OSError, yaml.YAMLError):
+            continue
+    return presets
+
+
+def _openai_client_from_sidebar(base_url: str, api_key: str) -> Any | None:
+    if not base_url.strip() and not api_key.strip():
+        return None
+    load_project_env()
+    from openai import OpenAI
+
+    client_options: dict[str, str] = {}
+    effective_base_url = base_url.strip() or os.getenv("OPENAI_BASE_URL")
+    effective_api_key = api_key.strip() or os.getenv("OPENAI_API_KEY")
+    if effective_base_url:
+        client_options["base_url"] = effective_base_url
+    if effective_api_key:
+        client_options["api_key"] = effective_api_key
+    elif effective_base_url:
+        client_options["api_key"] = "ollama"
+    return OpenAI(**client_options)
+
+
+def _render_report(report: Any) -> None:
+    if report.passed:
+        st.success("The pipeline completed without failures or errors.")
+    else:
+        st.warning("The pipeline reported a failure or error.")
+    for index, result in enumerate(report.step_results):
+        with st.container(border=True):
+            kind_label = html.escape(str(result.kind).title())
+            status_label = html.escape(str(result.status.value).upper())
+            status_color = "#16803c" if result.status.value in {"pass", "success"} else "#c62828"
+            st.markdown(
+                f"<div style='display:flex;align-items:center;gap:.5rem;flex-wrap:wrap'>"
+                f"<strong>{index + 1}. {html.escape(result.name)}</strong>"
+                f"<span style='background:#e8f1ff;color:#185abc;padding:.15rem .55rem;"
+                f"border-radius:999px;font-size:.8rem;font-weight:600'>{kind_label}</span>"
+                f"<span style='background:{status_color}18;color:{status_color};"
+                f"padding:.15rem .55rem;border-radius:999px;font-size:.8rem;"
+                f"font-weight:700'>{status_label}</span></div>",
+                unsafe_allow_html=True,
+            )
+            st.write(result.message)
+    if report.outputs:
+        st.subheader("Generated outputs")
+        st.json(report.to_dict()["outputs"])
+
+
 st.set_page_config(page_title="Guardrails Kit Playground", layout="wide")
 st.session_state.setdefault("pipeline_steps", [])
 st.session_state.setdefault("selected_step_id", None)
@@ -604,8 +671,8 @@ with st.sidebar:
 
 st.title("Guardrails Kit · Playground")
 st.write("Build your pipeline step by step, then test it with your own data.")
-prepare_tab, configure_tab, test_tab, yaml_tab = st.tabs(
-    ["1 · Build", "2 · Configure", "3 · Test", "4 · Export"]
+prepare_tab, configure_tab, test_tab, yaml_tab, preset_tab = st.tabs(
+    ["1 · Build", "2 · Configure", "3 · Test", "4 · Export", "5 · Try a preset"]
 )
 
 with prepare_tab:
@@ -782,48 +849,11 @@ with test_tab:
     run_clicked = st.button("Run pipeline", type="primary", disabled=not can_run)
     if run_clicked:
         try:
-            openai_client = None
-            if base_url.strip() or api_key.strip():
-                load_project_env()
-                from openai import OpenAI
-
-                client_options: dict[str, str] = {}
-                effective_base_url = base_url.strip() or os.getenv("OPENAI_BASE_URL")
-                effective_api_key = api_key.strip() or os.getenv("OPENAI_API_KEY")
-                if effective_base_url:
-                    client_options["base_url"] = effective_base_url
-                if effective_api_key:
-                    client_options["api_key"] = effective_api_key
-                elif effective_base_url:
-                    client_options["api_key"] = "ollama"
-                openai_client = OpenAI(**client_options)
-
+            openai_client = _openai_client_from_sidebar(base_url, api_key)
             pipeline = Guardrails.from_dict(config, openai_client=openai_client)
             with st.spinner("Running pipeline…"):
                 report = pipeline.run(input_data)
-            if report.passed:
-                st.success("The pipeline completed without failures or errors.")
-            else:
-                st.warning("The pipeline reported a failure or error.")
-            for index, result in enumerate(report.step_results):
-                with st.container(border=True):
-                    kind_label = html.escape(str(result.kind).title())
-                    status_label = html.escape(str(result.status.value).upper())
-                    status_color = "#16803c" if result.status.value in {"pass", "success"} else "#c62828"
-                    st.markdown(
-                        f"<div style='display:flex;align-items:center;gap:.5rem;flex-wrap:wrap'>"
-                        f"<strong>{index + 1}. {html.escape(result.name)}</strong>"
-                        f"<span style='background:#e8f1ff;color:#185abc;padding:.15rem .55rem;"
-                        f"border-radius:999px;font-size:.8rem;font-weight:600'>{kind_label}</span>"
-                        f"<span style='background:{status_color}18;color:{status_color};"
-                        f"padding:.15rem .55rem;border-radius:999px;font-size:.8rem;"
-                        f"font-weight:700'>{status_label}</span></div>",
-                        unsafe_allow_html=True,
-                    )
-                    st.write(result.message)
-            if report.outputs:
-                st.subheader("Generated outputs")
-                st.json(report.to_dict()["outputs"])
+            _render_report(report)
         except Exception as exc:
             st.error(f"Could not build or run the pipeline: {exc}")
 
@@ -835,6 +865,85 @@ with yaml_tab:
         "Download YAML", data=yaml_text, file_name="guardrails.yaml",
         mime="application/yaml", disabled=not steps or bool(config_error),
     )
+
+with preset_tab:
+    presets = _load_presets()
+    if not presets:
+        st.info("No presets were found. Add a preset folder under examples/presets with a manifest.yaml.")
+    else:
+        preset_by_id = {preset["id"]: preset for preset in presets}
+        selected_preset_id = st.selectbox(
+            "Choose a preset",
+            list(preset_by_id),
+            format_func=lambda preset_id: preset_by_id[preset_id].get("name", preset_id),
+            key="selected_preset_id",
+        )
+        preset = preset_by_id[selected_preset_id]
+        st.subheader(preset.get("name", selected_preset_id))
+        st.write(preset.get("summary", ""))
+        detail_col, info_col = st.columns([1.2, 1], gap="large")
+        with detail_col:
+            st.markdown("**What this preset expects**")
+            inputs = preset.get("inputs", {})
+            if isinstance(inputs, dict):
+                for input_name, input_info in inputs.items():
+                    if isinstance(input_info, dict):
+                        st.caption(f"`{input_name}` · {input_info.get('description', '')}")
+                    else:
+                        st.caption(f"`{input_name}` · {input_info}")
+        with info_col:
+            with st.expander("Requirements and limitations"):
+                for item in preset.get("requirements", []):
+                    st.markdown(f"- {item}")
+                if preset.get("limitations"):
+                    st.markdown("**Limitations**")
+                    for item in preset["limitations"]:
+                        st.markdown(f"- {item}")
+
+        pipeline_path = Path(preset["_directory"]) / preset.get("pipeline", "pipeline.yaml")
+        with st.expander("Inspect preset YAML"):
+            st.code(pipeline_path.read_text(encoding="utf-8"), language="yaml")
+
+        st.markdown("#### Try it with your data")
+        input_values: dict[str, str] = {}
+        with st.form(f"preset_test_{selected_preset_id}"):
+            for input_name, input_info in inputs.items():
+                if isinstance(input_info, dict):
+                    label = input_info.get("label", input_name.replace("_", " ").title())
+                    description = input_info.get("description", "")
+                    default_value = input_info.get("example", "")
+                else:
+                    label = input_name.replace("_", " ").title()
+                    description = str(input_info)
+                    default_value = ""
+                input_values[input_name] = st.text_area(
+                    label,
+                    value=default_value,
+                    help=description,
+                    key=f"{selected_preset_id}_{input_name}",
+                    height=150 if len(default_value) > 120 else 100,
+                )
+            preset_run_clicked = st.form_submit_button("Run this preset", type="primary")
+
+        if preset_run_clicked:
+            try:
+                preset_config = yaml.safe_load(pipeline_path.read_text(encoding="utf-8"))
+                parse_config(preset_config)
+                if default_model.strip():
+                    for configured_step in preset_config.get("steps", []):
+                        if configured_step.get("type") == "llm_extractor":
+                            params = configured_step.setdefault("params", {})
+                            if not params.get("model"):
+                                params["model"] = default_model.strip()
+                openai_client = _openai_client_from_sidebar(base_url, api_key)
+                preset_pipeline = Guardrails.from_dict(
+                    preset_config, openai_client=openai_client
+                )
+                with st.spinner(f"Running {preset.get('name', selected_preset_id)}…"):
+                    preset_report = preset_pipeline.run(input_values)
+                _render_report(preset_report)
+            except Exception as exc:
+                st.error(f"Could not run this preset: {exc}")
 
 st.caption(
     "Model-backed steps use the settings in the sidebar or values from .env. "
