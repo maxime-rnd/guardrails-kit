@@ -1,0 +1,24 @@
+id: safety_review
+name: General safety review
+category: safety
+summary: >-
+  Assess untrusted user input and assistant output for prompt injection, jailbreaks,
+  harmful or abusive content, sensitive data disclosure, and hidden instruction leaks.
+pipeline: pipeline.yaml
+schema: models.py
+inputs:
+  user_input: A plain text message from an untrusted user.
+  output_and_context: >-
+    A plain text bundle containing the assistant response and, when available,
+    the context used to produce it. Add clear labels such as "Response:" and
+    "Reference context:" so the model can distinguish them.
+requirements:
+  - An OpenAI-compatible chat completion endpoint.
+  - A model that supports structured output for the Pydantic schemas.
+customize:
+  - Tune the prompts to your policy and language.
+  - Remove checks for risks your application does not block.
+  - Add checks for other fields in the typed assessments.
+limitations:
+  - Model judgments can miss attacks or flag benign text.
+  - This recipe is not a security boundary and should not be the only defense.

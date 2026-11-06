@@ -98,12 +98,12 @@ print(report.get_output("safe_message", str))
 print(report.step_results["message_present"].status.value)
 ```
 
-For a complete example with LLM extraction and embedding similarity, load [`examples/guardrails.yaml`](examples/guardrails.yaml):
+For a complete example with LLM extraction and embedding similarity, load [`examples/support/pipeline.yaml`](examples/support/pipeline.yaml):
 
 ```python
 from guardrails_kit import Guardrails
 
-guardrails = Guardrails.from_yaml("examples/guardrails.yaml")
+guardrails = Guardrails.from_yaml("examples/support/pipeline.yaml")
 report = guardrails.run({
     "customer": {
         "name": "Ada Lovelace",
@@ -127,9 +127,9 @@ The YAML file contains an ordered `steps` list. Each step has a `kind` (`transfo
 - `outputs.safe_message` reads a named transform result produced earlier in the same pipeline run.
 - `input` by itself refers to the complete original value.
 
-See [`examples/guardrails.yaml`](examples/guardrails.yaml) for a complete pipeline with PII redaction, structured LLM extraction, schema validation, similarity, and condition checks. LLM and embedding operations need an OpenAI-compatible client; regex and condition operations do not.
+See [`examples/support/pipeline.yaml`](examples/support/pipeline.yaml) for a complete pipeline with PII redaction, structured LLM extraction, schema validation, similarity, and condition checks. LLM and embedding operations need an OpenAI-compatible client; regex and condition operations do not.
 
-If you want separate input and output processing, create two independent pipeline objects. For example, load [`examples/output_guardrails.yaml`](examples/output_guardrails.yaml) into a second `Guardrails` instance and call `run()` on the response object.
+If you want separate input and output processing, create two independent pipeline objects. For example, load [`examples/support/response_checks.yaml`](examples/support/response_checks.yaml) into a second `Guardrails` instance and call `run()` on the response object.
 
 ## Streamlit playground
 
@@ -158,6 +158,12 @@ The LLM extractor accepts either an import path to a Pydantic model or an inline
 | Check | `regex` | Checks whether a pattern is present or forbidden. |
 
 See the `params` for each operation in the example YAML and the corresponding classes under [`src/guardrails_kit/operations`](src/guardrails_kit/operations/).
+
+### Generic safety review example
+
+The [`examples/presets/safety_review/`](examples/presets/safety_review/) recipe groups broadly useful signals into typed input and output assessments: prompt injection, jailbreaks, harmful or abusive content, sensitive data disclosure, and hidden-instruction disclosure. Its `manifest.yaml` describes when to use it, required inputs, and limitations; `pipeline.yaml` extracts the assessments and checks selected fields; `models.py` defines the output contract. Load it with `Guardrails.from_yaml("examples/presets/safety_review/pipeline.yaml")`. It contains no project-specific intent or routing categories. Treat model assessments as signals for your own policy, not as a security boundary; adapt the fields, prompts, and checks to your application.
+
+Each ready-made recipe should be a self-contained folder with a manifest, pipeline, and any schemas it needs. That keeps the catalog separate from the core operations and makes each recipe easy to inspect, copy, adapt, and export. The Streamlit playground can later read these manifests to show a searchable preset gallery; choosing one should copy its YAML into the normal pipeline editor so users can customize it before running or exporting it.
 
 ## Read the report
 
@@ -229,7 +235,10 @@ The built-in `LLMExtractor` and `EmbeddingSimilarityCheck` can also receive an i
 - `src/guardrails_kit/steps/` — pipeline step contracts and execution adapters.
 - `src/guardrails_kit/config.py` — YAML/dictionary configuration validation.
 - `src/guardrails_kit/pipeline.py` — sequential pipeline execution and reports.
-- `examples/` — runnable YAML and Python examples, including example Pydantic models.
+- `examples/support/` — runnable support pipeline examples.
+- `examples/presets/` — ready-made, editable pipeline recipes with metadata and schemas.
+- `examples/evaluations/` — behavior evaluation examples.
+- `examples/models.py` — shared Pydantic models used by the notebook and support examples.
 - `notebooks/` — interactive walkthrough.
 - `tests/` — automated unit tests.
 - `.github/workflows/ci.yml` — test and compile checks for supported Python versions.
@@ -241,6 +250,14 @@ Run the example pipeline from the repository root:
 ```bash
 python -m examples.run_demo
 ```
+
+To check whether changes to the extraction prompt or similarity threshold affect known examples, run the small behavior evaluation:
+
+```bash
+python -m examples.evaluations.evaluate_support_pipeline
+```
+
+It compares four support messages with expected categories and expected similarity verdicts, then prints per-case results and match counts. The pipeline uses the model endpoint configured in `.env`, so each evaluation run makes model requests. A mismatch means the actual result differed from the expectation and is worth reviewing; model outputs can vary between runs.
 
 Open [`notebooks/guardrails_kit_demo.ipynb`](notebooks/guardrails_kit_demo.ipynb) for an interactive walkthrough. Run the unit tests with:
 

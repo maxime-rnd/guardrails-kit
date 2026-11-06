@@ -13,7 +13,7 @@ from guardrails_kit import Guardrails  # noqa: E402
 
 
 def main() -> None:
-    guardrails = Guardrails.from_yaml(ROOT / "examples" / "guardrails.yaml")
+    guardrails = Guardrails.from_yaml(ROOT / "examples" / "support" / "pipeline.yaml")
     payload = {
         "customer": {
             "name": "Ada Lovelace",
@@ -38,7 +38,9 @@ def main() -> None:
     if "classification" in report.outputs:
         print("\nClassification:", report.get_output("classification"))
 
-    output_guardrails = Guardrails.from_yaml(ROOT / "examples" / "output_guardrails.yaml")
+    output_guardrails = Guardrails.from_yaml(
+        ROOT / "examples" / "support" / "response_checks.yaml"
+    )
     output_report = output_guardrails.run(
         {"answer": "Your subscription has been corrected.", "confidence": 0.95}
     )
